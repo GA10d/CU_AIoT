@@ -29,3 +29,4 @@ while True:
     builtin_led.value(not builtin_led.value())
     if(x % 5 == 0):
         reverse_13()
+        x = 0
