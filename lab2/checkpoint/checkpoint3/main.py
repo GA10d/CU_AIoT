@@ -44,5 +44,4 @@ while True:
     led_pwm.duty_u16(raw)
     frequency = int(raw / 65535 * 2000 + 100)
     buzzer_pwm.freq(frequency)  # 将频率映射到 100-2100 Hz 范围
-    sleep(0.1)  # 10 Hz
-    raw = raw % 65536  # 保持在 0-65535 范围内
+    sleep(0.001)  # 1 kHz
