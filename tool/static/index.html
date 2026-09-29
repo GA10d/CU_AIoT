@@ -1,0 +1,664 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#111315">
+  <title>HUZZAH Control Deck</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23111315'/%3E%3Cpath d='M20 9h24v9h8v28h-8v9H20v-9h-8V18h8z' fill='%232b3035' stroke='%23f5b940' stroke-width='3'/%3E%3Ccircle cx='32' cy='32' r='9' fill='%2332d583'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d0e;
+      --panel: #141719;
+      --panel-raised: #1b1f22;
+      --line: #30363b;
+      --muted: #929ba2;
+      --text: #edf0f2;
+      --green: #37d67a;
+      --yellow: #ffbf3f;
+      --red: #ff5656;
+      --cyan: #68d8e8;
+      --shadow: 0 22px 70px rgba(0, 0, 0, .36);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: var(--bg); }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      overflow: hidden;
+      color: var(--text);
+      background:
+        linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px),
+        radial-gradient(circle at 12% 0%, rgba(104,216,232,.08), transparent 30%),
+        var(--bg);
+      background-size: 24px 24px, 24px 24px, auto, auto;
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif;
+      font-size: 16px;
+    }
+
+    button, input, select { font: inherit; }
+    button:focus-visible, input:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(104, 216, 232, .42);
+      outline-offset: 2px;
+    }
+
+    .shell {
+      width: min(1440px, 100%); height: 100dvh; margin: 0 auto; padding: 26px;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .topbar {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 14px; }
+    .chip {
+      width: 43px; height: 43px; border: 1px solid #4c565d; border-radius: 10px;
+      display: grid; place-items: center; color: var(--yellow); background: #171b1e;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 800;
+      box-shadow: inset 0 0 0 4px #20262a;
+    }
+    .eyebrow { color: var(--muted); font-size: .78rem; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { font-size: clamp(1.3rem, 2vw, 1.72rem); margin: 2px 0 0; letter-spacing: -.025em; }
+    .connection { text-align: right; }
+    .connection strong { display: block; font-size: .94rem; }
+    .connection span { color: var(--muted); font-size: .8rem; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(310px, var(--left-width, 390px)) 10px minmax(0, 1fr);
+      gap: 10px;
+      padding-top: 20px;
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    .left {
+      display: grid;
+      grid-template-rows: minmax(178px, var(--signal-height, 224px)) 10px minmax(0, 1fr);
+      gap: 10px;
+      min-width: 0;
+      min-height: 0;
+    }
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: linear-gradient(145deg, rgba(255,255,255,.025), transparent 48%), var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .panel-body { padding: 20px; }
+    .panel-title {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      margin-bottom: 17px;
+    }
+    .panel-title h2 { font-size: .93rem; text-transform: uppercase; letter-spacing: .11em; margin: 0; }
+    .index { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #657078; font-size: .8rem; }
+
+    .signal-panel {
+      padding: 20px; display: grid; grid-template-columns: 84px 1fr;
+      align-items: center; gap: 20px; min-height: 0; overflow: auto;
+    }
+    .signal-tower {
+      width: 74px; padding: 10px 12px; border: 1px solid #343a3e; border-radius: 16px;
+      background: #0e1011; display: grid; gap: 8px; box-shadow: inset 0 0 18px #000;
+    }
+    .lamp {
+      width: 48px; height: 48px; border-radius: 50%; background: #23272a;
+      border: 4px solid #181b1d; box-shadow: inset 0 0 10px rgba(0,0,0,.9);
+      transition: .22s ease;
+    }
+    [data-state="flashing"] .lamp.red,
+    [data-state="error"] .lamp.red { background: var(--red); box-shadow: 0 0 24px rgba(255,86,86,.75), inset 0 0 9px #fff4; }
+    [data-state="monitoring"] .lamp.yellow { background: var(--yellow); box-shadow: 0 0 24px rgba(255,191,63,.72), inset 0 0 9px #fff5; }
+    [data-state="idle"] .lamp.green { background: var(--green); box-shadow: 0 0 24px rgba(55,214,122,.68), inset 0 0 9px #fff4; }
+    [data-state="flashing"] .lamp.red { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { filter: brightness(.58); box-shadow: 0 0 8px rgba(255,86,86,.35); } }
+    .state-copy small { color: var(--muted); text-transform: uppercase; letter-spacing: .14em; font-size: .72rem; }
+    .state-copy h2 { font-size: 1.15rem; line-height: 1.35; margin: 7px 0; }
+    .state-copy p { color: var(--muted); font-size: .84rem; line-height: 1.55; margin: 0; }
+    .legend span { display: block; white-space: nowrap; }
+    .legend b { font-weight: 800; }
+    .legend .red-word { color: #ff7777; }
+    .legend .yellow-word { color: #ffd06b; }
+    .legend .green-word { color: #63e69a; }
+
+    .splitter {
+      position: relative;
+      z-index: 4;
+      border-radius: 7px;
+      touch-action: none;
+      outline: none;
+    }
+    .splitter::before, .splitter::after {
+      content: "";
+      position: absolute;
+      border-radius: 99px;
+      background: #3d464c;
+      transition: background .18s ease, box-shadow .18s ease;
+    }
+    .splitter-vertical { cursor: col-resize; }
+    .splitter-vertical::before, .splitter-vertical::after {
+      width: 2px; height: 26px; top: 50%; transform: translateY(-50%);
+    }
+    .splitter-vertical::before { left: 2px; }
+    .splitter-vertical::after { right: 2px; }
+    .splitter-horizontal { cursor: row-resize; }
+    .splitter-horizontal::before, .splitter-horizontal::after {
+      width: 26px; height: 2px; left: 50%; transform: translateX(-50%);
+    }
+    .splitter-horizontal::before { top: 2px; }
+    .splitter-horizontal::after { bottom: 2px; }
+    .splitter:hover::before, .splitter:hover::after,
+    .splitter:focus-visible::before, .splitter:focus-visible::after {
+      background: var(--cyan);
+      box-shadow: 0 0 9px rgba(104,216,232,.55);
+    }
+    body.resizing { user-select: none; }
+    body.resizing-x { cursor: col-resize; }
+    body.resizing-y { cursor: row-resize; }
+
+    label { display: block; color: #c6cdd2; font-size: .86rem; margin-bottom: 8px; }
+    select, .baud {
+      width: 100%; height: 44px; border-radius: 9px; border: 1px solid #3a4248;
+      padding: 0 12px; color: var(--text); background: #0f1214;
+    }
+    .port-row { display: grid; grid-template-columns: 1fr 104px; gap: 10px; }
+    .field-note { color: var(--muted); font-size: .75rem; line-height: 1.5; margin-top: 8px; }
+
+    .file-zone {
+      display: block; border: 1px dashed #485158; border-radius: 12px; padding: 18px;
+      background: rgba(255,255,255,.018); cursor: pointer; transition: .2s ease;
+    }
+    .file-zone:hover { border-color: var(--cyan); background: rgba(104,216,232,.04); }
+    .file-zone input { position: absolute; opacity: 0; pointer-events: none; }
+    .file-zone strong { display: block; margin-bottom: 5px; font-size: .95rem; }
+    .file-zone span { display: block; color: var(--muted); font-size: .8rem; overflow-wrap: anywhere; }
+    .actions { display: grid; gap: 10px; margin-top: 16px; }
+    .lower-stack {
+      min-height: 0; overflow: hidden; display: grid;
+      grid-template-rows: minmax(330px, 1fr) 10px minmax(110px, var(--pin-height, 145px));
+      gap: 10px;
+      scrollbar-color: #394147 transparent;
+    }
+    .controls { min-height: 0; overflow: auto; }
+    .pin-panel {
+      min-height: 0; padding: 18px 20px; display: flex; align-items: flex-start;
+      justify-content: space-between; gap: 16px;
+    }
+    .pin-panel-copy h2 { margin: 0 0 5px; font-size: .93rem; text-transform: uppercase; letter-spacing: .11em; }
+    .pin-panel-copy p { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.45; }
+    .pin-button { min-width: 128px; color: var(--text); background: #2b3035; border-color: #59636a; }
+    .button-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    button {
+      min-height: 46px; border: 1px solid #424a50; border-radius: 10px; color: var(--text);
+      background: var(--panel-raised); font-weight: 700; cursor: pointer; transition: .18s ease;
+    }
+    button:hover:not(:disabled) { transform: translateY(-1px); border-color: #69747c; }
+    button:active:not(:disabled) { transform: translateY(0); }
+    button:disabled { opacity: .42; cursor: not-allowed; }
+    .primary { color: #101414; background: var(--green); border-color: #5be694; }
+    .monitor { color: #1b1607; background: var(--yellow); border-color: #ffd370; }
+    .release { color: #ffdcdc; border-color: #6a3737; background: #251719; }
+
+    .terminal-panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+    .terminal-head {
+      min-height: 57px; padding: 0 18px; border-bottom: 1px solid var(--line);
+      display: flex; align-items: center; justify-content: space-between; gap: 18px;
+      background: #171a1c;
+    }
+    .terminal-label { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .terminal-label strong { font-size: .9rem; }
+    .terminal-label span { color: var(--muted); font-size: .78rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .terminal-dots { display: flex; gap: 6px; }
+    .terminal-dots i { width: 9px; height: 9px; border-radius: 50%; background: #3b4247; }
+    .terminal-dots i:nth-child(1) { background: var(--red); }
+    .terminal-dots i:nth-child(2) { background: var(--yellow); }
+    .terminal-dots i:nth-child(3) { background: var(--green); }
+    .clear {
+      min-height: 34px; padding: 0 12px; color: var(--muted); background: transparent;
+      border-radius: 7px; font-size: .78rem; font-weight: 600;
+    }
+    .terminal {
+      flex: 1; min-height: 0; overflow: auto;
+      padding: 18px; background: #090b0c; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .84rem; line-height: 1.65; scrollbar-color: #394147 #0c0e0f;
+    }
+    .terminal-empty { color: #5f696f; }
+    .line { display: grid; grid-template-columns: 70px 1fr; gap: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .time { color: #4d585f; user-select: none; }
+    .kind-command .message { color: var(--cyan); }
+    .kind-error .message { color: #ff7777; }
+    .kind-success .message { color: #63e69a; }
+    .kind-serial .message { color: #f0f1d5; }
+    .kind-output .message { color: #bdc5ca; }
+
+    .pin-dialog {
+      width: min(94vw, 1500px); max-width: none; height: min(90vh, 920px); max-height: none;
+      padding: 0; border: 1px solid #4a545b; border-radius: 16px; color: var(--text);
+      background: #111416; box-shadow: 0 28px 100px rgba(0,0,0,.72); overflow: hidden;
+    }
+    .pin-dialog::backdrop { background: rgba(2, 5, 6, .82); backdrop-filter: blur(5px); }
+    .pin-dialog[open] { display: flex; flex-direction: column; }
+    .dialog-head {
+      flex: 0 0 auto; min-height: 62px; padding: 0 14px 0 22px; display: flex;
+      align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--line);
+      background: #171b1e;
+    }
+    .dialog-head h2 { margin: 0; font-size: 1rem; letter-spacing: .04em; }
+    .dialog-close {
+      width: 40px; min-height: 40px; padding: 0; border-radius: 9px; background: transparent;
+      color: #cbd2d6; font-size: 1.5rem; line-height: 1;
+    }
+    .pin-image-viewport {
+      flex: 1 1 auto; min-height: 0; overflow: auto; padding: 16px; background: #f3f3f3;
+      scrollbar-color: #7b858b #d8d8d8;
+    }
+    .pin-image { display: block; width: 100%; min-width: 900px; height: auto; margin: 0 auto; }
+
+    .toast {
+      position: fixed; right: 24px; bottom: 24px; max-width: min(430px, calc(100vw - 48px));
+      padding: 13px 16px; border: 1px solid #684042; border-radius: 10px; background: #2a1719;
+      color: #ffdcdc; box-shadow: var(--shadow); transform: translateY(24px); opacity: 0;
+      pointer-events: none; transition: .22s ease; font-size: .88rem; line-height: 1.5;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+
+    @media (max-width: 900px) {
+      body { overflow: auto; }
+      .shell { height: auto; min-height: 100vh; padding: 18px; overflow: visible; }
+      .layout { grid-template-columns: 1fr; flex: none; min-height: auto; }
+      .splitter { display: none; }
+      .left {
+        display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: auto;
+        align-items: start; min-height: auto;
+      }
+      .lower-stack {
+        grid-column: 1 / -1; overflow: visible; display: flex; flex-direction: column;
+      }
+      .signal-panel, .controls { overflow: visible; }
+      .terminal-panel { min-height: 500px; }
+      .terminal { min-height: 440px; max-height: 65vh; }
+    }
+    @media (max-width: 620px) {
+      .shell { padding: 14px; }
+      .topbar { align-items: flex-start; }
+      .connection { display: none; }
+      .left { display: flex; }
+      .signal-panel { grid-template-columns: 74px 1fr; }
+      .signal-tower { width: 66px; padding-inline: 8px; }
+      .port-row, .button-row { grid-template-columns: 1fr; }
+      .terminal-head { align-items: center; }
+      .terminal-label span { display: none; }
+      .terminal { padding: 13px; }
+      .line { grid-template-columns: 58px 1fr; gap: 8px; }
+      .pin-panel { flex: 0 0 auto; align-items: stretch; flex-direction: column; }
+      .pin-button { width: 100%; }
+      .pin-dialog { width: 96vw; height: 88vh; }
+      .pin-image-viewport { padding: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="chip" aria-hidden="true">H32</div>
+        <div>
+          <div class="eyebrow">Local device console</div>
+          <h1>HUZZAH Control Deck</h1>
+        </div>
+      </div>
+      <div class="connection">
+        <strong>ESP32 · MicroPython</strong>
+        <span>仅连接本机 127.0.0.1</span>
+      </div>
+    </header>
+
+    <section class="layout">
+      <div class="left">
+        <section class="panel signal-panel" id="signalPanel" data-state="idle" aria-live="polite">
+          <div class="signal-tower" aria-hidden="true">
+            <i class="lamp red"></i><i class="lamp yellow"></i><i class="lamp green"></i>
+          </div>
+          <div class="state-copy">
+            <small>System state</small>
+            <h2 id="statusText">正在连接本地服务…</h2>
+            <p class="legend">
+              <span><b class="red-word">红</b>：烧录中</span>
+              <span><b class="yellow-word">黄</b>：查看输出</span>
+              <span><b class="green-word">绿</b>：串口已释放</span>
+            </p>
+          </div>
+        </section>
+
+        <div class="splitter splitter-horizontal" id="rowSplitter" role="separator"
+             aria-label="调整状态灯与设备面板高度" aria-orientation="horizontal" tabindex="0"></div>
+
+        <div class="lower-stack">
+          <section class="panel controls">
+            <div class="panel-body">
+              <div class="panel-title"><h2>设备与程序</h2><span class="index">01 / 02</span></div>
+              <div class="port-row">
+                <div>
+                  <label for="port">串口</label>
+                  <select id="port" aria-label="选择串口"><option value="">正在查找…</option></select>
+                </div>
+                <div>
+                  <label for="baud">波特率</label>
+                  <input class="baud" id="baud" type="number" min="300" max="4000000" value="115200">
+                </div>
+              </div>
+              <p class="field-note">自动识别常见 CP210x、CH340 和 USB modem 串口。</p>
+
+              <label class="file-zone" for="folder" style="margin-top:16px">
+                <input id="folder" type="file" webkitdirectory directory multiple>
+                <strong>选择程序目录</strong>
+                <span id="fileLabel">尚未选择；目录中必须包含 main.py</span>
+              </label>
+
+              <div class="actions">
+                <button class="primary" id="flash" disabled>烧录程序</button>
+                <div class="button-row">
+                  <button class="monitor" id="monitor">查看输出</button>
+                  <button class="release" id="release">释放串口</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="splitter splitter-horizontal" id="lowerSplitter" role="separator"
+               aria-label="调整设备与程序和引脚参考的高度" aria-orientation="horizontal" tabindex="0"></div>
+
+          <section class="panel pin-panel">
+            <div class="pin-panel-copy">
+              <h2>引脚参考</h2>
+              <p>查看 HUZZAH32 GPIO、ADC、PWM 与总线引脚图。</p>
+            </div>
+            <button class="pin-button" id="showPins">查看引脚</button>
+          </section>
+        </div>
+      </div>
+
+      <div class="splitter splitter-vertical" id="columnSplitter" role="separator"
+           aria-label="调整控制区与实时日志宽度" aria-orientation="vertical" tabindex="0"></div>
+
+      <section class="panel terminal-panel">
+        <div class="terminal-head">
+          <div class="terminal-label">
+            <div class="terminal-dots" aria-hidden="true"><i></i><i></i><i></i></div>
+            <strong>实时日志</strong><span>命令、烧录结果与串口输出</span>
+          </div>
+          <button class="clear" id="clear">清空显示</button>
+        </div>
+        <div class="terminal" id="terminal" role="log" aria-live="polite">
+          <div class="terminal-empty" id="empty">等待操作…</div>
+        </div>
+      </section>
+    </section>
+  </main>
+  <dialog class="pin-dialog" id="pinDialog" aria-labelledby="pinDialogTitle">
+    <div class="dialog-head">
+      <h2 id="pinDialogTitle">Adafruit HUZZAH32 引脚图</h2>
+      <button class="dialog-close" id="closePins" aria-label="关闭引脚图">×</button>
+    </div>
+    <div class="pin-image-viewport">
+      <img class="pin-image" src="/HUZZAH.png" alt="Adafruit HUZZAH32 GPIO、ADC、触摸、SPI、I2C 与电源引脚图">
+    </div>
+  </dialog>
+  <div class="toast" id="toast" role="alert"></div>
+
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const ui = {
+      panel: $('#signalPanel'), status: $('#statusText'), port: $('#port'), baud: $('#baud'),
+      folder: $('#folder'), fileLabel: $('#fileLabel'), flash: $('#flash'), monitor: $('#monitor'),
+      release: $('#release'), terminal: $('#terminal'), empty: $('#empty'), clear: $('#clear'), toast: $('#toast'),
+      showPins: $('#showPins'), pinDialog: $('#pinDialog'), closePins: $('#closePins')
+    };
+    const layout = $('.layout');
+    const leftColumn = $('.left');
+    const lowerStack = $('.lower-stack');
+    const columnSplitter = $('#columnSplitter');
+    const rowSplitter = $('#rowSplitter');
+    const lowerSplitter = $('#lowerSplitter');
+    let mainFile = null;
+    let lastLogId = 0;
+    let busy = false;
+    let clearedBefore = 0;
+
+    function showToast(message) {
+      ui.toast.textContent = message;
+      ui.toast.classList.add('show');
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => ui.toast.classList.remove('show'), 4400);
+    }
+
+    function clamp(value, minimum, maximum) {
+      return Math.min(Math.max(value, minimum), Math.max(minimum, maximum));
+    }
+
+    function restoreSplitSizes() {
+      const leftWidth = Number(localStorage.getItem('huzzah-left-width'));
+      const signalHeight = Number(localStorage.getItem('huzzah-signal-height'));
+      const pinHeight = Number(localStorage.getItem('huzzah-pin-height'));
+      if (leftWidth > 0) layout.style.setProperty('--left-width', `${leftWidth}px`);
+      if (signalHeight > 0) leftColumn.style.setProperty('--signal-height', `${signalHeight}px`);
+      if (pinHeight > 0) lowerStack.style.setProperty('--pin-height', `${pinHeight}px`);
+    }
+
+    function setColumnWidth(value) {
+      const bounds = layout.getBoundingClientRect();
+      const width = clamp(value, 310, bounds.width - 430);
+      layout.style.setProperty('--left-width', `${width}px`);
+      columnSplitter.setAttribute('aria-valuenow', String(Math.round(width)));
+      localStorage.setItem('huzzah-left-width', String(Math.round(width)));
+    }
+
+    function setSignalHeight(value) {
+      const bounds = leftColumn.getBoundingClientRect();
+      const height = clamp(value, 178, bounds.height - 470);
+      leftColumn.style.setProperty('--signal-height', `${height}px`);
+      rowSplitter.setAttribute('aria-valuenow', String(Math.round(height)));
+      localStorage.setItem('huzzah-signal-height', String(Math.round(height)));
+    }
+
+    function setPinHeight(value) {
+      const bounds = lowerStack.getBoundingClientRect();
+      const height = clamp(value, 110, bounds.height - 360);
+      lowerStack.style.setProperty('--pin-height', `${height}px`);
+      lowerSplitter.setAttribute('aria-valuenow', String(Math.round(height)));
+      localStorage.setItem('huzzah-pin-height', String(Math.round(height)));
+    }
+
+    function makeDraggable(splitter, axis, pointerHandler, keyboardHandler) {
+      splitter.addEventListener('pointerdown', event => {
+        if (window.matchMedia('(max-width: 900px)').matches) return;
+        event.preventDefault();
+        splitter.setPointerCapture(event.pointerId);
+        document.body.classList.add('resizing', axis === 'x' ? 'resizing-x' : 'resizing-y');
+      });
+      splitter.addEventListener('pointermove', event => {
+        if (!splitter.hasPointerCapture(event.pointerId)) return;
+        pointerHandler(event);
+      });
+      const finish = event => {
+        if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
+        document.body.classList.remove('resizing', 'resizing-x', 'resizing-y');
+      };
+      splitter.addEventListener('pointerup', finish);
+      splitter.addEventListener('pointercancel', finish);
+      splitter.addEventListener('keydown', event => {
+        const step = event.shiftKey ? 50 : 16;
+        if (axis === 'x' && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+          event.preventDefault();
+          keyboardHandler(event.key === 'ArrowRight' ? step : -step);
+        }
+        if (axis === 'y' && ['ArrowUp', 'ArrowDown'].includes(event.key)) {
+          event.preventDefault();
+          keyboardHandler(event.key === 'ArrowDown' ? step : -step);
+        }
+      });
+    }
+
+    restoreSplitSizes();
+    makeDraggable(
+      columnSplitter,
+      'x',
+      event => setColumnWidth(event.clientX - layout.getBoundingClientRect().left),
+      delta => setColumnWidth(leftColumn.getBoundingClientRect().width + delta)
+    );
+    makeDraggable(
+      rowSplitter,
+      'y',
+      event => setSignalHeight(event.clientY - leftColumn.getBoundingClientRect().top),
+      delta => setSignalHeight($('#signalPanel').getBoundingClientRect().height + delta)
+    );
+    makeDraggable(
+      lowerSplitter,
+      'y',
+      event => setPinHeight(lowerStack.getBoundingClientRect().bottom - event.clientY),
+      delta => setPinHeight($('.pin-panel').getBoundingClientRect().height - delta)
+    );
+
+    ui.showPins.addEventListener('click', () => ui.pinDialog.showModal());
+    ui.closePins.addEventListener('click', () => ui.pinDialog.close());
+    ui.pinDialog.addEventListener('click', event => {
+      if (event.target === ui.pinDialog) ui.pinDialog.close();
+    });
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, options);
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || `请求失败 (${response.status})`);
+      return payload;
+    }
+
+    function updateButtons(state) {
+      const hasPort = Boolean(ui.port.value);
+      ui.flash.disabled = busy || !hasPort || !mainFile;
+      ui.monitor.disabled = busy || !hasPort || state === 'monitoring';
+      ui.release.disabled = busy || state === 'idle';
+      ui.folder.disabled = busy;
+      ui.port.disabled = busy || state === 'monitoring';
+      ui.baud.disabled = busy || state === 'monitoring';
+    }
+
+    async function refreshStatus() {
+      try {
+        const data = await api('/api/status');
+        ui.panel.dataset.state = data.status;
+        ui.status.textContent = data.statusText;
+        const previous = ui.port.value;
+        const options = data.ports.length ? data.ports : [''];
+        const signature = options.join('|');
+        if (ui.port.dataset.signature !== signature) {
+          ui.port.innerHTML = '';
+          options.forEach(port => {
+            const option = document.createElement('option');
+            option.value = port;
+            option.textContent = port || '未发现 HUZZAH 串口';
+            ui.port.append(option);
+          });
+          ui.port.dataset.signature = signature;
+          if (options.includes(previous)) ui.port.value = previous;
+          const preferred = options.find(p => p.includes('usbserial-5B8E6151211'));
+          if (!previous && preferred) ui.port.value = preferred;
+        }
+        updateButtons(data.status);
+      } catch (error) {
+        ui.panel.dataset.state = 'error';
+        ui.status.textContent = '本地服务连接失败';
+        updateButtons('error');
+      }
+    }
+
+    async function pollLogs() {
+      try {
+        const data = await api(`/api/logs?after=${lastLogId}`);
+        if (data.logs.length) {
+          if (ui.empty) { ui.empty.remove(); ui.empty = null; }
+          const nearBottom = ui.terminal.scrollHeight - ui.terminal.scrollTop - ui.terminal.clientHeight < 90;
+          for (const entry of data.logs) {
+            lastLogId = Math.max(lastLogId, entry.id);
+            if (entry.id <= clearedBefore) continue;
+            const line = document.createElement('div');
+            line.className = `line kind-${entry.kind}`;
+            const stamp = document.createElement('span');
+            stamp.className = 'time'; stamp.textContent = entry.time;
+            const message = document.createElement('span');
+            message.className = 'message'; message.textContent = entry.message || ' ';
+            line.append(stamp, message);
+            ui.terminal.append(line);
+          }
+          if (nearBottom) ui.terminal.scrollTop = ui.terminal.scrollHeight;
+        }
+      } catch (_) { /* Status panel already reports connectivity. */ }
+    }
+
+    ui.folder.addEventListener('change', () => {
+      const files = [...ui.folder.files];
+      const candidates = files.filter(file => file.name === 'main.py');
+      mainFile = candidates.find(file => file.webkitRelativePath.split('/').length === 2) || candidates[0] || null;
+      if (mainFile) {
+        ui.fileLabel.textContent = `${mainFile.webkitRelativePath || mainFile.name} · ${(mainFile.size / 1024).toFixed(1)} KB`;
+      } else {
+        ui.fileLabel.textContent = '所选目录中没有找到 main.py';
+        showToast('请选择包含 main.py 的程序目录。');
+      }
+      updateButtons(ui.panel.dataset.state);
+    });
+
+    ui.flash.addEventListener('click', async () => {
+      if (!mainFile || !ui.port.value) return;
+      busy = true; updateButtons('flashing');
+      try {
+        const bytes = await mainFile.arrayBuffer();
+        await api('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-Serial-Port': ui.port.value, 'X-Filename': 'main.py' },
+          body: bytes
+        });
+      } catch (error) { showToast(error.message); }
+      finally { busy = false; await refreshStatus(); }
+    });
+
+    ui.monitor.addEventListener('click', async () => {
+      if (!ui.port.value) return;
+      busy = true; updateButtons('monitoring');
+      try {
+        await api('/api/monitor/start', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ port: ui.port.value, baud: Number(ui.baud.value) })
+        });
+      } catch (error) { showToast(error.message); }
+      finally { busy = false; await refreshStatus(); }
+    });
+
+    ui.release.addEventListener('click', async () => {
+      busy = true; updateButtons('idle');
+      try { await api('/api/monitor/stop', { method: 'POST' }); }
+      catch (error) { showToast(error.message); }
+      finally { busy = false; await refreshStatus(); }
+    });
+
+    ui.clear.addEventListener('click', () => {
+      clearedBefore = lastLogId;
+      ui.terminal.replaceChildren();
+      const empty = document.createElement('div');
+      empty.className = 'terminal-empty'; empty.textContent = '显示已清空，等待新输出…';
+      ui.terminal.append(empty); ui.empty = empty;
+    });
+    ui.port.addEventListener('change', () => updateButtons(ui.panel.dataset.state));
+
+    refreshStatus(); pollLogs();
+    setInterval(refreshStatus, 1500);
+    setInterval(pollLogs, 350);
+  </script>
+</body>
+</html>

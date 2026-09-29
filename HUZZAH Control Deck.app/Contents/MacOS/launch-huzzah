@@ -1,0 +1,19 @@
+#!/bin/zsh
+set -eu
+
+LAUNCHER_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$LAUNCHER_DIR/../../.." && pwd)"
+START_SCRIPT="$PROJECT_DIR/tool/start.command"
+CONTROL_URL="http://127.0.0.1:8765"
+
+if /usr/bin/curl -fsS --max-time 1 "$CONTROL_URL/api/health" >/dev/null 2>&1; then
+  /usr/bin/open "$CONTROL_URL"
+  exit 0
+fi
+
+if [[ ! -x "$START_SCRIPT" ]]; then
+  /usr/bin/osascript -e 'display alert "无法启动 HUZZAH Control Deck" message "没有找到 tool/start.command，请确认快捷方式仍位于 CU_AIoT 目录中。" as critical'
+  exit 1
+fi
+
+/usr/bin/open -a Terminal "$START_SCRIPT"
