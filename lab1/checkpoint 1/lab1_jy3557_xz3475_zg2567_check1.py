@@ -18,18 +18,18 @@ np_led.write()
 def dot():
     np_led[0] = (10, 10, 10)
     np_led.write()
-    utime.sleep(0.1)
+    utime.sleep(0.5)
     np_led[0] = (0, 0, 0)
     np_led.write()
-    utime.sleep(0.1)
+    utime.sleep(0.5)
 
 def string():
     np_led[0] = (10, 10, 10)
     np_led.write()
-    utime.sleep(0.5)
+    utime.sleep(1)
     np_led[0] = (0, 0, 0)
     np_led.write()
-    utime.sleep(0.1)
+    utime.sleep(0.5)
 
 while True:
     builtin_led.value(not builtin_led.value())
@@ -43,4 +43,4 @@ while True:
     dot()
     dot()
     dot()
-    utime.sleep(1)
+    utime.sleep(2)
