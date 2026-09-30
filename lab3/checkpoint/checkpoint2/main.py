@@ -1,11 +1,28 @@
-from machine import Pin, I2C
+from time import sleep
+from machine import ADC, Pin, PWM
+from machine import SoftI2C
 import ssd1306
 
-pwr = Pin(13, Pin.OUT)
-pwr.value(1)
+i2c = SoftI2C(sda=Pin(22), scl=Pin(20),freq=100000)
+display=ssd1306.SSD1306_I2C(128, 32, i2c)
 
-i2c = I2C(0, scl=Pin(20), sda=Pin(22))
-display = ssd1306.SSD1306_I2C(128, 32, i2c)
+light = ADC(Pin(34))
+raw = light.read_u16()
 
-display.text("Hello, World!", 0, 0, 1)
+led_pwm = PWM(Pin(26), freq=1000, duty_u16=0)
+buzzer_pwm = PWM(Pin(25), freq=1000, duty_u16=10768)
+
+display.text("Light test", 0, 0)
 display.show()
+while True:
+    raw = light.read_u16()
+    #更新OLED
+    contrast = max(15, raw * 255 // 65535)
+    display.contrast(contrast)
+    display.show()
+    # 更新 LED 和 piezo
+    led_pwm.duty_u16(raw)
+    frequency = int(raw / 65535 * 2000 + 100)
+    buzzer_pwm.freq(frequency)  # 将频率映射到 100-2100 Hz 范围
+    sleep(0.1)  # 10 Hz
+    raw = raw % 65536  # 保持在 0-65535 范围内
