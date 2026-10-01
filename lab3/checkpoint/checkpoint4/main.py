@@ -1,6 +1,6 @@
 import time
 from time import ticks_ms, ticks_diff,sleep
-from machine import Pin, I2C, RTC
+from machine import Pin, I2C, RTC, SoftI2C
 from machine import ADC, PWM
 import neopixel
 import ssd1306
@@ -346,7 +346,12 @@ def check_alarm():
     if ALARM_TIME[0] == rtc.datetime()[0] and ALARM_TIME[1] == rtc.datetime()[1] and ALARM_TIME[2] == rtc.datetime()[2] and ALARM_TIME[4] == rtc.datetime()[4] and ALARM_TIME[5] == rtc.datetime()[5] and ALARM_TIME[6] == rtc.datetime()[6] and ALARM_TRIGGERED:
         ALARM_ON = True
 
+light = ADC(Pin(34))
+
 while True:
+    raw = light.read_u16()
+    contrast = max(15, raw * 255 // 65535)
+    display.contrast(contrast)
     # if ALARM_TRIGGERED:
     #     print("ALARM TRIGGERED")
     # if ALARM_ON:
