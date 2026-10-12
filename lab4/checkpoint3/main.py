@@ -26,7 +26,7 @@ def get_json(url):
 
 ssid = "Columbia University"
 password = ""
-API_KEY = "替换成新的OpenWeatherMap_API_Key"
+API_KEY = "640bdd03fa4bc5eeff41cfdbe18e9d4c"
 
 stage = "WiFi"
 
@@ -83,7 +83,6 @@ try:
 
 except Exception as error:
     print(stage + " failed:", error)
-    city = "Unknown"
     temperature = "N/A"
     humidity = "N/A"
     description = "N/A"
