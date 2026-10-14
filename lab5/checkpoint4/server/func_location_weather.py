@@ -38,6 +38,11 @@ class LocationWeatherDisplay:
 
         print("WiFi connected:", self._wlan.ifconfig())
 
+    def connect_wifi(self):
+        """Connect once and return the IP for main.py's command server."""
+        self._connect_wifi()
+        return self._wlan.ifconfig()[0]
+
     def _get_json(self, url):
         response = None
         try:
