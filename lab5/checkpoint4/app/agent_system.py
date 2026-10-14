@@ -22,14 +22,13 @@ SUPPORTED COMMANDS:
 
 1. screen_on
    Arguments: []
-   Restore OLED contrast to 255 and refresh its current contents.
+   Turn on the OLED display and refresh its current contents.
    It does not select a new screen or reset the clock/alarm.
    Example: {"name": "screen_on", "args": []}
 
 2. screen_off
    Arguments: []
-   Set OLED contrast to 0 (minimum brightness) without powering it down.
-   Some panels may still be faintly visible. Clock and alarm logic continue.
+   Turn off the OLED display. Clock and alarm logic continue.
    This does not cancel an alarm or turn off the whole smartwatch.
    Example: {"name": "screen_off", "args": []}
 
@@ -79,8 +78,8 @@ SUPPORTED COMMANDS:
 
 INTERPRETATION RULES:
 - Recognize equivalent expressions and commands spoken in any language.
-- Only screen_on/screen_off change OLED contrast. Other display commands update
-  the selected contents but do not automatically restore brightness.
+- Only screen_on/screen_off turn the OLED display on or off. Other display
+  commands update its contents but do not automatically turn it on.
 - Weather/location/text replace the current view and pause clock rendering;
   alarm checks continue. display_time selects the live clock again.
 - set_alarm already shows its own confirmation and returns to the clock;

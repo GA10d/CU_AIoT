@@ -57,18 +57,17 @@ def hardware_init():
 
 def init_screen_system(hardware):
     display = hardware["display"]
-    normal_contrast = 255
-    display.contrast(normal_contrast)
 
     def screen_on():
-        display.contrast(normal_contrast)
+        # The installed SSD1306_I2C.poweron() is a no-op.
+        # Send Display ON directly, preserving the current framebuffer.
+        display.write_cmd(0xAF)
         display.show()
-        return {"screen": "on", "brightness": normal_contrast}
+        return {"screen": "on"}
 
     def screen_off():
-        # Contrast 0 is minimum brightness; it does not power down the OLED.
-        display.contrast(0)
-        return {"screen": "off", "brightness": 0}
+        display.poweroff()
+        return {"screen": "off"}
 
     COMMAND_LIST.update({
         "screen_on": screen_on,
