@@ -7,6 +7,7 @@ import ssd1306
 from func_location_weather import LocationWeatherDisplay
 from func_time_alarm import TimeAlarmDisplay
 from func_text import TextDisplay
+from func_ntp_time import sync_rtc
 from command_protocol import validate_command
 from command_server import CommandServer
 from device_config import WIFI_SSID, WIFI_PASSWORD, WEATHER_API_KEY, SERVER_PORT
@@ -21,7 +22,14 @@ API_KEY = WEATHER_API_KEY
 
 # Optional RTC tuple: (year, month, day, weekday, hour, minute, second, subseconds).
 # None preserves the device's existing RTC instead of resetting it at every boot.
+# When NTP_SYNC is on, the RTC is overwritten with real time after Wi-Fi connects.
 RTC_START_TIME = None
+
+# Real time from the internet. UTC_OFFSET_HOURS is the standard-time offset
+# (New York = -5); USE_US_DST adds one hour during US daylight saving time.
+NTP_SYNC = True
+UTC_OFFSET_HOURS = -5
+USE_US_DST = True
 COMMAND_LIST = {}
 
 
@@ -147,8 +155,10 @@ def execute_command(command, args=None):
     return handler(*command["args"])
 
 
-def init_command_server(systems):
+def init_command_server(systems, hardware):
     ip = systems["weather_location"].connect_wifi()
+    if NTP_SYNC:
+        sync_rtc(hardware["rtc"], UTC_OFFSET_HOURS, USE_US_DST)
     server = CommandServer(execute_command, port=SERVER_PORT)
     server.start()
     print("Smartwatch server listening on {}:{}".format(ip, SERVER_PORT))
@@ -163,7 +173,7 @@ def main(command="display_time", args=None, serve=True):
     try:
         systems = software_init(hardware)
         if serve:
-            server = init_command_server(systems)
+            server = init_command_server(systems, hardware)
         print(execute_command(command, args))
         while True:
             systems["time_alarm"].update()
