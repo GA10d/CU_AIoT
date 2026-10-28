@@ -1,0 +1,15 @@
+{
+  "cot": {
+    "correct": 4,
+    "total": 10,
+    "accuracy": 0.4,
+    "invalid_outputs": 0
+  },
+  "direct": {
+    "correct": 3,
+    "total": 10,
+    "accuracy": 0.3,
+    "invalid_outputs": 0
+  },
+  "agreement_rate": 0.7
+}
