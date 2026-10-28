@@ -1,0 +1,8 @@
+venv/
+NormWear/
+ckpt/
+UCI HAR Dataset/
+results/
+data.jsonl
+predictions.jsonl
+__pycache__/
