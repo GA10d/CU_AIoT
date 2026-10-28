@@ -16,7 +16,9 @@ if [ ! -d venv ]; then
 fi
 source venv/bin/activate
 pip install -q --upgrade pip
-pip install -q torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+# torchvision must come from the same CPU index: timm imports it, and a PyPI
+# torchvision built for a different torch fails with "operator torchvision::nms does not exist".
+pip install -q torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 pip install -q transformers timm scipy scikit-learn pandas tqdm flask
 
 # --- NormWear code + checkpoints ---
