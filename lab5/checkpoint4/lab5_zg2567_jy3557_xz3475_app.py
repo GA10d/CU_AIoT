@@ -1,0 +1,390 @@
+"""Lab 5 Checkpoint 4 - voice-controlled smartwatch assistant (computer side).
+
+Gradio records audio -> Whisper transcribes it -> Gemini turns the text into a
+JSON command -> the command is sent over TCP to the ESP32 running server.py,
+and the watch's reply is shown in the web app.
+
+Setup: put a .env file next to this script with
+    GEMINI_API_KEY=...
+    WATCH_HOST=<ESP32 IP printed by server.py>
+    WATCH_PORT=8080
+    WATCH_TIMEOUT=20
+Run:   python app.py
+"""
+import asyncio
+import json
+import os
+import socket
+from pathlib import Path
+
+import gradio as gr
+import whisper
+from dotenv import load_dotenv
+from google import genai
+from google.genai import types
+
+# ---------------------------------------------------------------------------
+# JSON command protocol (must match server.py)
+# ---------------------------------------------------------------------------
+
+COMMAND_ARG_COUNTS = {
+    "screen_on": 0,
+    "screen_off": 0,
+    "display_time": 0,
+    "set_alarm": 2,
+    "display_text": 1,
+    "display_location": 0,
+    "display_weather": 0,
+}
+
+
+class CommandError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def validate_command(command):
+    if not isinstance(command, dict) or set(command) != {"name", "args"}:
+        raise CommandError("invalid_command", "Expected a JSON object with name and args")
+    name, args = command["name"], command["args"]
+    if not isinstance(name, str) or name not in COMMAND_ARG_COUNTS:
+        raise CommandError("unknown_command", "Unknown command: {}".format(name))
+    if not isinstance(args, list) or len(args) != COMMAND_ARG_COUNTS[name]:
+        raise CommandError("invalid_arguments", "{} requires {} arguments".format(
+            name, COMMAND_ARG_COUNTS[name]))
+    if name == "set_alarm":
+        hour, minute = args
+        if (type(hour) is not int or type(minute) is not int
+                or not 0 <= hour < 24 or not 0 <= minute < 60):
+            raise CommandError("invalid_arguments", "Alarm needs hour 0-23 and minute 0-59")
+    elif name == "display_text":
+        text = args[0]
+        if not isinstance(text, str):
+            raise CommandError("invalid_arguments", "Text must be a string")
+        if any(c not in "\r\n\t" and not 32 <= ord(c) <= 126 for c in text):
+            raise CommandError("invalid_arguments", "OLED font supports ASCII text only")
+    return command
+
+
+# ---------------------------------------------------------------------------
+# TCP client for the ESP32
+# ---------------------------------------------------------------------------
+
+class SmartwatchClient:
+    def __init__(self, host, port=8080, timeout=20):
+        if not host or not host.strip():
+            raise ValueError("Set WATCH_HOST to the ESP32 IP address")
+        if not 1 <= int(port) <= 65535 or float(timeout) <= 0:
+            raise ValueError("Invalid WATCH_PORT or WATCH_TIMEOUT")
+        self.host = host.strip()
+        self.port = int(port)
+        self.timeout = float(timeout)
+
+    def send_request(self, command):
+        validate_command(command)
+        request = json.dumps(command).encode() + b"\n"
+        if len(request) - 1 > 1024:
+            raise ValueError("Command exceeds the server's 1024-byte limit")
+        # No automatic retry: the device may have executed a timed-out request.
+        with socket.create_connection((self.host, self.port), self.timeout) as connection:
+            connection.sendall(request)
+            received = bytearray()
+            while b"\n" not in received:
+                chunk = connection.recv(512)
+                if not chunk:
+                    raise ConnectionError("ESP32 closed the connection without a complete reply")
+                received.extend(chunk)
+                if len(received) > 4096:
+                    raise ValueError("ESP32 reply exceeds the size limit")
+        response = json.loads(bytes(received).split(b"\n", 1)[0].decode())
+        if not isinstance(response, dict) or type(response.get("ok")) is not bool:
+            raise ValueError("Invalid response from ESP32")
+        return response
+
+
+# ---------------------------------------------------------------------------
+# LLM: natural language -> JSON command
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = """
+You are a voice assistant for a smartwatch.
+Convert the user's request into exactly one command supported by the smartwatch.
+
+OUTPUT RULES:
+- Return exactly one JSON object with exactly two keys: "name" and "args".
+- Format: {"name": "command_name", "args": []}
+- Use valid JSON with double quotes. Do not include Markdown or explanations.
+- Select only one of the seven commands listed below.
+- args must be a JSON array with the exact argument count and types listed.
+- Do not claim that an action has succeeded; the device executes the command.
+
+SUPPORTED COMMANDS:
+
+1. screen_on
+   Arguments: []
+   Turn on the OLED display and refresh its current contents.
+   It does not select a new screen or reset the clock/alarm.
+   Example: {"name": "screen_on", "args": []}
+
+2. screen_off
+   Arguments: []
+   Turn off the OLED display. Clock and alarm logic continue.
+   This does not cancel an alarm or turn off the whole smartwatch.
+   Example: {"name": "screen_off", "args": []}
+
+3. display_time
+   Arguments: []
+   Select a continuously updating view of the device's current RTC date/time.
+   Do not calculate or invent the current time yourself.
+   Example: {"name": "display_time", "args": []}
+
+4. set_alarm
+   Arguments: [hour, minute], exactly two integers.
+   hour must be 0-23; minute must be 0-59. Use 24-hour local RTC time.
+   Set or replace the single alarm for the next occurrence of that time.
+   If that time has already passed or equals the current time, it is tomorrow.
+   The device displays "Alarm enabled" and the alarm time for 3 seconds,
+   then automatically returns to the continuously updating clock.
+   At alarm time, LED/buzzer notifications run for 10 seconds and stop.
+   This is a one-shot alarm, not a recurring daily alarm.
+   Do not pass seconds, dates, duration, labels or an enabled flag.
+   Example: {"name": "set_alarm", "args": [16, 30]}
+
+5. display_text
+   Arguments: [text], exactly one string.
+   Replace the OLED contents with a message or a short answer.
+   Keep text within 48 characters total, including spaces and newlines.
+   Use printable ASCII characters only, with optional newline characters.
+   The current font supports English letters, digits and ASCII punctuation.
+   Translate or transliterate non-ASCII messages into concise English/ASCII.
+   Even when the user speaks Chinese, displayed replies must use ASCII.
+   The device wraps text at 16 characters per line, with up to 4 lines.
+   This view stays until another display command replaces it.
+   Example: {"name": "display_text", "args": ["Hello!"]}
+
+6. display_location
+   Arguments: []
+   Show approximate latitude and longitude based on the network's public IP.
+   Use this for requests about the current location. Do not invent coordinates
+   or imply that the device has GPS-level accuracy.
+   Example: {"name": "display_location", "args": []}
+
+7. display_weather
+   Arguments: []
+   Show current weather for the IP-based location, including temperature
+   in Celsius, humidity and conditions. It does not provide forecasts or
+   weather for a user-selected city.
+   Example: {"name": "display_weather", "args": []}
+
+INTERPRETATION RULES:
+- Recognize equivalent expressions and commands spoken in any language.
+- Only screen_on/screen_off turn the OLED display on or off. Other display
+  commands update its contents but do not automatically turn it on.
+- Weather/location/text replace the current view and pause clock rendering;
+  alarm checks continue. display_time selects the live clock again.
+- set_alarm already shows its own confirmation and returns to the clock;
+  do not generate an extra display command to implement this sequence.
+- For explicit AM/PM times, convert to 24-hour time: 12 AM is 0, 12 PM is 12.
+- Accept clear 24-hour times and clear morning/afternoon/evening expressions.
+  If hour/minute or AM/PM is ambiguous, ask a short clarification through
+  display_text. Do not guess a missing alarm time.
+- Resolve relative alarm times only when reliable current local RTC time is
+  supplied as context. Otherwise ask for an explicit hour and minute.
+- Do not promise recurring alarms, alarm cancellation, alarm status queries,
+  time setting, or other functions absent from the command list. Explain the
+  limitation briefly through display_text when such a function is requested.
+- For several independent actions, ask which one to do first via display_text.
+- For a general question, answer briefly via display_text when you can answer
+  accurately. If necessary live data is unavailable, say so briefly.
+- For current time/location/current local weather, use the dedicated command
+  instead of inventing the result or placing guessed live data in display_text.
+- Preserve the intent of requested messages, shortening/translating as needed
+  to satisfy the ASCII and 48-character limits.
+
+EXAMPLES:
+
+User: Turn on the screen.
+Response: {"name": "screen_on", "args": []}
+
+User: Make the screen go dark.
+Response: {"name": "screen_off", "args": []}
+
+User: Show the clock.
+Response: {"name": "display_time", "args": []}
+
+User: What time is it?
+Response: {"name": "display_time", "args": []}
+
+User: Show "Hello Alice" on the screen.
+Response: {"name": "display_text", "args": ["Hello Alice"]}
+
+User: Set an alarm for 4:30 PM.
+Response: {"name": "set_alarm", "args": [16, 30]}
+
+User: Set an alarm for 12 AM.
+Response: {"name": "set_alarm", "args": [0, 0]}
+
+User: Set an alarm for 12 PM.
+Response: {"name": "set_alarm", "args": [12, 0]}
+
+User: Set an alarm for 7.
+Response: {"name": "display_text", "args": ["7 AM or 7 PM?"]}
+
+User: Set an alarm in 10 minutes.
+Response: {"name": "display_text", "args": ["What exact time should I set?"]}
+
+User: Where am I?
+Response: {"name": "display_location", "args": []}
+
+User: What is the weather here right now?
+Response: {"name": "display_weather", "args": []}
+
+User: Show tomorrow's forecast.
+Response: {"name": "display_text", "args": ["Weather forecasts are not available."]}
+
+User: Is an alarm currently set?
+Response: {"name": "display_text", "args": ["Alarm status lookup is not available."]}
+
+User: What is the capital of France?
+Response: {"name": "display_text", "args": ["Paris"]}
+
+User: 关掉屏幕。
+Response: {"name": "screen_off", "args": []}
+
+User: 设置下午四点半的闹钟。
+Response: {"name": "set_alarm", "args": [16, 30]}
+
+User: 在屏幕上显示你好。
+Response: {"name": "display_text", "args": ["Hello"]}
+"""
+
+
+class SmartwatchAssistant:
+    def __init__(
+        self,
+        api_key=None,
+        model="gemini-3.5-flash-lite",
+        system_prompt=SYSTEM_PROMPT,
+    ):
+        api_key = api_key or os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("please set GEMINI_API_KEY environment variable or pass api_key.")
+
+        self.client = genai.Client(api_key=api_key)
+        self.model = model
+        self.config = types.GenerateContentConfig(
+            system_instruction=system_prompt,
+            response_mime_type="application/json",
+        )
+
+    async def get_response(self, prompt):
+        chunks = []
+
+        async for partial in await self.client.aio.models.generate_content_stream(
+            model=self.model,
+            contents=prompt,
+            config=self.config,
+        ):
+            if partial.text:
+                chunks.append(partial.text)
+
+        return "".join(chunks)
+
+    async def close(self):
+        await self.client.aio.aclose()
+
+
+# ---------------------------------------------------------------------------
+# Gradio web app
+# ---------------------------------------------------------------------------
+
+def system_init():
+    load_dotenv(Path(__file__).resolve().parent / ".env")
+    host = os.environ.get("WATCH_HOST", "").strip()
+    client = None
+    if host:
+        client = SmartwatchClient(
+            host=host,
+            port=int(os.environ.get("WATCH_PORT", "8080")),
+            timeout=float(os.environ.get("WATCH_TIMEOUT", "20")),
+        )
+    whisper_model = whisper.load_model("tiny.en")
+    assistant = SmartwatchAssistant()
+    return whisper_model, assistant, client
+
+
+def error_response(code, message):
+    return json.dumps({"ok": False, "error": {"code": code, "message": message}},
+                      ensure_ascii=False, indent=2)
+
+
+async def process_input(audio, text, whisper_model, assistant, client):
+    text = (text or "").strip()
+    if text:
+        user_input = text
+    elif audio is not None:
+        try:
+            result = await asyncio.to_thread(whisper_model.transcribe, audio, fp16=False)
+            user_input = result["text"].strip()
+        except Exception as error:
+            return "[ERROR]: speech recognition failed: {}".format(error), "", ""
+    else:
+        return "[ERROR]: provide audio or text.", "", ""
+    if not user_input:
+        return "[ERROR]: no speech recognized.", "", ""
+
+    try:
+        llm_response = await assistant.get_response(user_input)
+    except Exception as error:
+        return user_input, "[ERROR]: LLM request failed: {}".format(error), ""
+
+    try:
+        command = json.loads(llm_response)
+    except (ValueError, TypeError):
+        return user_input, llm_response, error_response("invalid_json", "LLM returned invalid JSON")
+    try:
+        validate_command(command)
+    except CommandError as error:
+        return user_input, llm_response, error_response(error.code, str(error))
+    if client is None:
+        return user_input, llm_response, error_response(
+            "not_configured", "Set WATCH_HOST in .env to the ESP32 IP, then restart app.py")
+
+    try:
+        # Socket I/O runs in a worker thread so the Gradio event loop stays free.
+        response = await asyncio.to_thread(client.send_request, command)
+    except OSError as error:
+        return user_input, llm_response, error_response(
+            "connection_failed", "ESP32 {}:{}: {}. Check device state before retrying.".format(
+                client.host, client.port, error))
+    except ValueError as error:
+        return user_input, llm_response, error_response("invalid_response", str(error))
+    return user_input, llm_response, json.dumps(response, ensure_ascii=False, indent=2)
+
+
+def set_ui(whisper_model, assistant, client):
+    async def handle_input(audio, text):
+        return await process_input(audio, text, whisper_model, assistant, client)
+
+    return gr.Interface(
+        fn=handle_input,
+        inputs=[
+            gr.Audio(sources=["microphone"], type="filepath", label="Voice Input"),
+            gr.Textbox(label="Text Input (optional)", placeholder="Type your query here..."),
+        ],
+        outputs=[
+            gr.Textbox(label="Transcription/Input"),
+            gr.Textbox(label="LLM Response"),
+            gr.Textbox(label="Smartwatch Response"),
+        ],
+        title="Voice Assistant",
+        description="Control the smartwatch by voice or text.",
+        flagging_mode="never",
+    )
+
+
+if __name__ == "__main__":
+    whisper_model, assistant, client = system_init()
+    ui = set_ui(whisper_model, assistant, client)
+    ui.launch(debug=False, share=True)
