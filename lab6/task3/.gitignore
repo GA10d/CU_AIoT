@@ -1,0 +1,4 @@
+__pycache__/
+esp32/board_config.py
+.env
+results/
