@@ -45,6 +45,7 @@ def hardware_init():
         "accel": ADXL345(spi, cs),
         "button_a": Pin(12, Pin.IN, Pin.PULL_UP),
         "button_b": Pin(15, Pin.IN, Pin.PULL_UP),
+        "button_c": Pin(14, Pin.IN, Pin.PULL_UP),
     }
 
 
@@ -149,11 +150,8 @@ def post_json(path, payload, timeout=15):
         response.close()
 
 
-def collect_and_classify(hardware, label_index):
-    """Record one window, send it to /classify, and show NormWear's prediction."""
+def countdown_and_record(hardware, short):
     display = hardware["display"]
-    label, short = LABELS[label_index]
-
     for remaining in range(COUNTDOWN_S, 0, -1):
         show_lines(display, ["True: " + short, "Start in {}s".format(remaining)])
         time.sleep(1)
@@ -163,6 +161,32 @@ def collect_and_classify(hardware, label_index):
     acc = record_window(hardware["accel"])
     elapsed = time.ticks_diff(time.ticks_ms(), start)
     print("Recorded {} samples in {} ms".format(WINDOW, elapsed))
+    return acc
+
+
+def collect_and_upload(hardware, label_index):
+    """Checkpoint 3: record one window and store it on the server via /upload."""
+    display = hardware["display"]
+    label, short = LABELS[label_index]
+    acc = countdown_and_record(hardware, short)
+
+    show_lines(display, ["True: " + short, "Uploading..."])
+    payload = {"device": DEVICE_ID, "label": label, "fs": 50, "acc": acc}
+    try:
+        result = post_json("/upload", payload)
+    except Exception as error:
+        print("Upload failed:", error)
+        show_lines(display, ["Upload failed", str(error)[:16]])
+        return
+    print("Server:", result)
+    show_lines(display, ["Saved to cloud", "see /samples"])
+
+
+def collect_and_classify(hardware, label_index):
+    """Checkpoint 4: record one window, send it to /classify, and show NormWear's prediction."""
+    display = hardware["display"]
+    label, short = LABELS[label_index]
+    acc = countdown_and_record(hardware, short)
 
     show_lines(display, ["True: " + short, "Classifying..."])
     # label is only logged on the server for the report; the model never sees it.
@@ -175,8 +199,7 @@ def collect_and_classify(hardware, label_index):
         return
     print("Server:", result)
     show_lines(display, ["Pred:", result["short"],
-                         "conf {}%".format(round(result["confidence"] * 100)),
-                         "A:again B:label"])
+                         "conf {}%".format(round(result["confidence"] * 100))])
 
 
 def pressed(button, last_ms):
@@ -186,26 +209,36 @@ def pressed(button, last_ms):
     return None
 
 
+def show_menu(display, label_index):
+    show_lines(display, ["True: " + LABELS[label_index][1],
+                         "A:classify(CP4)", "C:upload  (CP3)", "B:true label"])
+
+
 def main():
     hardware = hardware_init()
     display = hardware["display"]
     connect_wifi(display)
 
     label_index = 0
-    last_a = last_b = time.ticks_ms()
-    show_lines(display, ["True: " + LABELS[label_index][1], "A:classify", "B:true label"])
+    last_a = last_b = last_c = time.ticks_ms()
+    show_menu(display, label_index)
 
     while True:
         t = pressed(hardware["button_b"], last_b)
         if t is not None:
             last_b = t
             label_index = (label_index + 1) % len(LABELS)
-            show_lines(display, ["True: " + LABELS[label_index][1], "A:classify", "B:true label"])
+            show_menu(display, label_index)
 
         t = pressed(hardware["button_a"], last_a)
         if t is not None:
             collect_and_classify(hardware, label_index)
             last_a = time.ticks_ms()
+
+        t = pressed(hardware["button_c"], last_c)
+        if t is not None:
+            collect_and_upload(hardware, label_index)
+            last_c = time.ticks_ms()
 
         time.sleep_ms(10)
 
