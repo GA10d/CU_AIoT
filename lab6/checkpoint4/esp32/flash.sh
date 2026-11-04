@@ -98,14 +98,14 @@ echo "[INFO] Port:   $PORT"
 echo "[INFO] Tool:   $MPREMOTE"
 echo "[INFO] Files:  ${files[*]}"
 
-# Check the board responds and that the OLED driver (not part of this repo) is already there.
+# Check the board responds and that the OLED driver is there (this folder ships its own copy).
 if ! device_ls="$("$MPREMOTE" connect "$PORT" fs ls : 2>&1)"; then
     echo "[ERROR] could not talk to the board on $PORT:" >&2
     echo "$device_ls" >&2
     echo "        Try pressing the RESET button on the ESP32, or unplug/replug it." >&2
     exit 1
 fi
-if ! grep -q 'ssd1306.py' <<<"$device_ls"; then
+if [ ! -f ssd1306.py ] && ! grep -q 'ssd1306.py' <<<"$device_ls"; then
     echo "[WARN] ssd1306.py is not on the board; main.py imports it. Upload the driver separately." >&2
 fi
 
