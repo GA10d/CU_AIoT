@@ -1,0 +1,93 @@
+\section{Task 5: \textit{NormWear on the Cloud}}
+
+All experiments ran on a Google Cloud Compute Engine VM (e2-standard-4: 4 vCPU, 16 GB RAM, no GPU) using PyTorch on CPU. We used only the three \texttt{total\_acc} channels of UCI HAR because the ADXL345 on our ESP32 has no gyroscope, so the same input format carries over to Task 5.3.
+
+\subsection{Task 5.1: Zero-Shot Inference}
+
+\textbf{Inputs to NormWear:}
+\begin{itemize}
+    \item \textbf{Task description:} ``What is the current activity?''
+    \item \textbf{Answer options:} ``The person is walking.'', ``The person is walking upstairs.'', ``The person is walking downstairs.'', ``The person is sitting.'', ``The person is standing.'', ``The person is laying.''
+    \item \textbf{Signal:} raw UCI HAR test windows in g, with shape $[B, 3, 128]$ at 50 Hz and no normalization.
+\end{itemize}
+
+The text is encoded by NormWear's text encoder, and the signal by the NormWear encoder and MSiTF fusion module (\texttt{signal\_encode}). The predicted class is the option closest to the signal embedding. Because \texttt{scipy.signal.cwt} has been removed from recent SciPy versions, we enabled the model's PyTorch wavelet option.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Test windows & 2947 \\
+Zero-shot accuracy & 11.27\% \\
+Runtime & 3622 s ($\approx$ 60 min) \\
+Hardware & CPU \\
+\bottomrule
+\end{tabular}
+\caption{Zero-shot results on the UCI HAR test set}
+\end{table}
+
+The model predicted only two classes: WALKING\_DOWNSTAIRS (1257 windows) and SITTING (1690 windows). Its accuracy is below uniform random guessing (16.7\%) and below the handout's reference of about 16\%. The runtime is also longer than the handout's estimate of 10--20 minutes. The VM was hosting our Flask server during the run, so this time is not a clean benchmark.
+
+\subsection{Task 5.2: Few-Shot Linear Probe}
+
+We kept the NormWear encoder frozen and extracted embeddings with \texttt{get\_embedding}, averaging its $[B, 3, P, 768]$ output over patches and channels to obtain one 768-dimensional vector per window. We encoded 10 randomly selected training windows per class (60 total) and all 2947 test windows, which took 3386 s on CPU. We then trained one \texttt{nn.Linear(768, 6)} layer with cross-entropy loss and Adam (learning rate $10^{-3}$) for 100 epochs.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Model & Test accuracy \\
+\midrule
+Before: zero-shot NormWear (Task 5.1) & 11.27\% \\
+Untrained linear head (random initialization) & 22.46\% \\
+After: trained linear head & 62.61\% \\
+\bottomrule
+\end{tabular}
+\caption{Test accuracy before and after training the linear head}
+\end{table}
+
+Training the linear head improved accuracy by 51.3 percentage points over the zero-shot result, using only 60 labeled windows.
+
+\subsection{Task 5.3: End-to-End Pipeline}
+
+\begin{enumerate}
+    \item The ESP32 samples the ADXL345 at 50 Hz for 128 samples per axis (about 2.56 s), converting readings to g.
+    \item It sends the $3 \times 128$ window as JSON in an HTTP POST to the Flask \texttt{/classify} endpoint on the VM.
+    \item The server converts the window to a $[1, 3, 128]$ tensor and passes it through the frozen NormWear encoder to obtain a $[1, 768]$ embedding. The encoder and linear head are loaded once at server startup.
+    \item The trained linear head and softmax produce class probabilities, and the most probable class is the prediction.
+    \item The server returns the label and confidence to the ESP32, which displays them on the OLED. Each request is also appended to \texttt{predictions.jsonl}.
+\end{enumerate}
+
+Table~\ref{tab:esp32-example} shows one logged run. The board was at rest and not worn on the body, so this example demonstrates that the pipeline works rather than recognition accuracy.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lr}
+\toprule
+Field & Value \\
+\midrule
+Input & $3 \times 128$ ADXL345 window, 50 Hz \\
+Recording time & 2542 ms \\
+Server inference time & 1248 ms \\
+\textbf{Prediction} & \textbf{STANDING (95.6\%)} \\
+\midrule
+P(STANDING) & 0.956 \\
+P(SITTING) & 0.023 \\
+P(WALKING\_DOWNSTAIRS) & 0.010 \\
+P(WALKING) & 0.006 \\
+P(LAYING) & 0.004 \\
+P(WALKING\_UPSTAIRS) & 0.001 \\
+\bottomrule
+\end{tabular}
+\caption{Example ESP32 input and prediction returned by the cloud server}
+\label{tab:esp32-example}
+\end{table}
+
+% Optional: add a photo of the OLED or a screenshot of the /predictions page.
+% \begin{figure}[h]
+%     \centering
+%     \includegraphics[width=0.7\linewidth]{oled_prediction.jpg}
+%     \caption{Predicted activity displayed on the ESP32 OLED}
+% \end{figure}
